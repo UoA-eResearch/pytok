@@ -80,7 +80,7 @@ class Search(Base):
             subdomain = "www"
             subpath = "user"
         elif obj_type == "item":
-            subdomain = "us"
+            subdomain = "www"
             subpath = "video"
         else:
             raise TypeError("invalid obj_type")
@@ -90,7 +90,7 @@ class Search(Base):
         url = f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}"
         await page.goto(url)
 
-        await self.wait_for_content_or_captcha('search_video-item')
+        await self.wait_for_content_or_captcha("[data-e2e='search_video-item-list']")
 
         processed_urls = []
         amount_yielded = 0
@@ -106,40 +106,42 @@ class Search(Base):
                 search_requests = [request for request in search_requests if request.url not in processed_urls]
                 for request in search_requests:
                     processed_urls.append(request.url)
-                    body = await self.get_response_body(request)
-                    res = json.loads(body)
-                    if res.get('type') == 'verify':
-                        # this is the captcha denied response
+                    response = await request.response()
+                    body = await self.get_response_body(response)
+                    try:
+                        res = json.loads(body)
+                        if res.get('type') == 'verify':
+                            # this is the captcha denied response
+                            continue
+
+                        # When I move to 3.10+ support make this a match switch.
+                        if obj_type == "user":
+                            for result in res.get("user_list", []):
+                                yield User(data=result)
+                                amount_yielded += 1
+
+                        if obj_type == "item":
+                            for result in res.get("item_list", []):
+                                yield Video(data=result)
+                                amount_yielded += 1
+
+                        if res.get("has_more", 0) == 0:
+                            Search.parent.logger.info(
+                                "TikTok is not sending videos beyond this point."
+                            )
+                            return
+                    except json.JSONDecodeError:
                         continue
 
-                    # When I move to 3.10+ support make this a match switch.
-                    if obj_type == "user":
-                        for result in res.get("user_list", []):
-                            yield User(data=result)
-                            amount_yielded += 1
+                await self.parent.request_delay()
+                await self.slight_scroll_up()
+                await self.parent.request_delay()
+                await self.scroll_to_bottom(speed=8)
+                await self.wait_until_not_skeleton_or_captcha(
+                    "video-skeleton-container"
+                )
 
-                    if obj_type == "item":
-                        for result in res.get("item_list", []):
-                            yield Video(data=result)
-                            amount_yielded += 1
-
-                    if res.get("has_more", 0) == 0:
-                        Search.parent.logger.info(
-                            "TikTok is not sending videos beyond this point."
-                        )
-                        return
-
-                try:
-                    load_more_button = self.wait_for_content_or_captcha('search-load-more')
-                except TimeoutError:
-                    return
-
-                load_more_button.click()
-
-                self.wait_until_not_skeleton_or_captcha('video-skeleton-container')
-
-            
-            elif pull_method == 'requests':
+            elif pull_method == "requests":
                 cursor = res["cursor"]
                 next_url = re.sub("offset=([0-9]+)", f"offset={cursor}", request.url)
                 cookies = self.parent._context.cookies()
