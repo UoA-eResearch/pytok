@@ -1,12 +1,11 @@
 import asyncio
-from datetime import datetime
 import random
-
-from pyclick import HumanCurve
+from datetime import datetime
 
 from playwright.async_api import expect
+from pyclick import HumanCurve
 
-from .. import exceptions, captcha_solver
+from .. import captcha_solver, exceptions
 
 TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
@@ -18,10 +17,13 @@ def get_login_close_element(page):
 
 
 def get_captcha_element(page):
-    return page.locator('Rotate the shapes') \
-        .or_(page.get_by_text('Verify to continue:', exact=True)) \
-        .or_(page.get_by_text('Click on the shapes with the same size', exact=True)) \
-        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True).first)
+    return (
+        page.locator("Rotate the shapes")
+        .or_(page.get_by_text("Verify to continue:", exact=True))
+        .or_(page.get_by_text("Click on the shapes with the same size", exact=True))
+        .or_(page.get_by_text("Drag the slider to fit the puzzle", exact=True).first)
+        .or_(page.get_by_text("Drag the puzzle piece into place", exact=True))
+    )
 
 
 class Base:
@@ -73,8 +75,18 @@ class Base:
             return expected_es
         expected_elements = add_no_content_text(expected_elements, no_content_text)
 
-        await expect(expected_elements).to_be_visible(
-            timeout=TOK_DELAY * 1000)
+        num_refresh_tries = 0
+        while num_refresh_tries < 3:
+            num_refresh_tries += 1
+            await expect(expected_elements).to_be_visible(timeout=TOK_DELAY * 1000)
+            refresh_is_visible = await refresh_button.is_visible()
+            if refresh_is_visible:
+                await refresh_button.click()  # Click the Refresh button and see if data is properly loaded.
+                await asyncio.sleep(1)
+                continue
+            else:
+                # If Refresh button is not shown, we can proceed.
+                break
 
         if await captcha_element.is_visible():
             await self.solve_captcha()
@@ -98,12 +110,9 @@ class Base:
             elif isinstance(no_content_text, str):
                 no_content_element = page.get_by_text(no_content_text, exact=True)
                 if await no_content_element.is_visible():
-                    raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
-                
-        
-        if await refresh_button.is_visible():
-            await refresh_button.click()
-            await asyncio.sleep(1)
+                    raise exceptions.NoContentException(
+                        f"Content is not available with message: '{no_content_text}'"
+                    )
 
         return content_element
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
 import requests
@@ -11,9 +10,9 @@ if TYPE_CHECKING:
     from ..tiktok import PyTok
     from .video import Video
 
-from .base import Base
-from ..helpers import edit_url, extract_tag_contents
 from ..exceptions import *
+from ..helpers import edit_url, extract_tag_contents
+from .base import Base
 
 
 class Hashtag(Base):
@@ -75,7 +74,9 @@ class Hashtag(Base):
         url = f"https://www.tiktok.com/tag/{self.name}"
         await page.goto(url)
 
-        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=challenge-item]', 'Not available')
+        await self.wait_for_content_or_unavailable_or_captcha(
+            "[data-e2e=challenge-item]", "Couldn't find this hashtag"
+        )
         await self.check_and_close_signin()
 
         challenge_responses = self.get_responses("api/challenge/detail")
